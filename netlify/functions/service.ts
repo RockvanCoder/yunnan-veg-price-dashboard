@@ -1,6 +1,7 @@
 import type { DashboardPayload, PricePoint, VegetableQuote } from "../../src/lib/types";
 import { fallbackPayload } from "./_shared";
 import {
+  DEFAULT_VEGETABLE_CATALOG,
   DEFAULT_VEGETABLE_NAMES,
   fetchCurrentPriceQuote,
   fetchGrowthRanking,
@@ -94,6 +95,71 @@ function buildDailySeries(records: Array<{ date: string; price: number }>): Pric
       growthRate,
     };
   });
+}
+
+function resolveCatalogItem(vegetableId: string, catalog: Awaited<ReturnType<typeof fetchVegetableCatalog>>) {
+  return (
+    catalog.find((item) => item.id === vegetableId) ??
+    DEFAULT_VEGETABLE_CATALOG.find((item) => item.id === vegetableId) ??
+    {
+      id: vegetableId,
+      name: vegetableId,
+      category: "蔬菜",
+      unit: "元/公斤",
+      code: vegetableId,
+    }
+  );
+}
+
+async function seedTodayHistoryBucket(input: {
+  marketId: string;
+  marketName: string;
+  provinceCode: string;
+  item: {
+    id: string;
+    name: string;
+    category: string;
+    unit: string;
+  };
+}) {
+  const growthRanking = await fetchGrowthRanking();
+  const priceFallbackLookup = buildPriceFallbackMap(growthRanking);
+  const now = shanghaiNow();
+  const today = shanghaiDateKey(now);
+  const syncAt = shanghaiDateTime(now);
+
+  let currentPrice = priceFallbackLookup.get(input.item.name) ?? 0;
+  try {
+    const response = await fetchCurrentPriceQuote({
+      marketId: input.marketId,
+      provinceCode: input.provinceCode,
+      varietyId: input.item.id,
+    });
+    currentPrice = Number(response.y[0] ?? currentPrice);
+  } catch {
+    // Keep the fallback price so a first-time history request still gets
+    // a usable "today" point instead of returning an empty history.
+  }
+
+  const bucket = upsertHistoryRecord(
+    createEmptyBucket({
+      marketId: input.marketId,
+      marketName: input.marketName,
+      provinceCode: input.provinceCode,
+      varietyId: input.item.id,
+      varietyName: input.item.name,
+      category: input.item.category,
+      unit: input.item.unit,
+    }),
+    {
+      date: today,
+      price: Number(currentPrice.toFixed(2)),
+      capturedAt: syncAt,
+    }
+  );
+
+  await saveHistoryBucket(bucket);
+  return bucket;
 }
 
 export async function buildDashboardPayload({ marketId, days = DEFAULT_RANGE_DAYS }: DashboardBuildInput = {}): Promise<DashboardPayload> {
@@ -253,11 +319,19 @@ export async function buildHistoryPayload(input: { marketId: string; vegetableId
     provinceCode: "530000",
     provinceName: "云南省",
   };
+  const catalog = await fetchVegetableCatalog();
+  const item = resolveCatalogItem(input.vegetableId, catalog);
+  const existingBucket = await loadHistoryBucket(activeMarket.id, input.vegetableId);
 
-  const bucket = await loadHistoryBucket(activeMarket.id, input.vegetableId);
-  if (!bucket) {
-    return [];
-  }
+  const bucket =
+    existingBucket && existingBucket.records.length > 0
+      ? existingBucket
+      : await seedTodayHistoryBucket({
+          marketId: activeMarket.id,
+          marketName: activeMarket.name,
+          provinceCode: activeMarket.provinceCode,
+          item,
+        });
 
   return buildDailySeries(bucket.records).slice(-Math.max(1, input.days));
 }

@@ -23,6 +23,11 @@ const quotes = computed(() => dashboard.value?.quotes ?? []);
 const selectedQuote = computed(() => quotes.value.find((item) => item.id === selectedVegetableId.value) ?? quotes.value[0]);
 const topGainers = computed(() => [...quotes.value].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4));
 const topLosers = computed(() => [...quotes.value].sort((a, b) => a.growthRate - b.growthRate).slice(0, 4));
+const historyHint = computed(() => {
+  if (!dashboard.value) return "";
+  if (historyPoints.value.length > 1) return "";
+  return "历史数据从今天开始累积，明天起可直接对比涨幅。";
+});
 
 function money(value: number) {
   return `¥${value.toFixed(2)}`;
@@ -37,6 +42,12 @@ function colorForRate(value: number) {
   if (value > 0) return "var(--red)";
   if (value < 0) return "var(--green)";
   return "var(--muted)";
+}
+
+async function resolveHistoryPoints(vegetableId: string) {
+  const points = await fetchHistory(vegetableId, activeMarketId.value, rangeDays.value);
+  if (points.length) return points;
+  return dashboard.value?.featuredHistory.find((item) => item.vegetableId === vegetableId)?.points ?? [];
 }
 
 async function loadDashboard() {
@@ -55,7 +66,7 @@ async function loadDashboard() {
     useMockNotice.value = payload.summary.sourceName.includes("示例");
     lastUpdated.value = payload.summary.syncAt;
     if (selectedVegetableId.value) {
-      historyPoints.value = await fetchHistory(selectedVegetableId.value, activeMarketId.value, rangeDays.value);
+      historyPoints.value = await resolveHistoryPoints(selectedVegetableId.value);
     }
   } catch (error) {
     sourceError.value = error instanceof Error ? error.message : "加载失败";
@@ -75,7 +86,7 @@ async function refreshNow() {
 
 async function selectVegetable(id: string) {
   selectedVegetableId.value = id;
-  historyPoints.value = await fetchHistory(id, activeMarketId.value, rangeDays.value);
+  historyPoints.value = await resolveHistoryPoints(id);
 }
 
 watch([activeMarketId, rangeDays], () => {
@@ -264,6 +275,7 @@ const comparisonOption = computed<EChartsOption>(() => ({
             </div>
             <div class="panel-chip">{{ selectedQuote?.name ?? "未选择" }}</div>
           </div>
+          <p v-if="historyHint" class="panel-hint">{{ historyHint }}</p>
           <BaseChart :option="priceChartOption" :loading="loading" height="340px" />
         </section>
 
