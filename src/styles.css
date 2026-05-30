@@ -273,13 +273,6 @@ button {
   line-height: 1.7;
 }
 
-.panel-hint {
-  margin: 0 0 12px;
-  color: #6b7280;
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
 .chart-shell {
   position: relative;
   width: 100%;
