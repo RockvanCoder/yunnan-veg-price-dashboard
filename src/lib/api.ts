@@ -1,5 +1,5 @@
-import { getMockDashboard, getMockMarkets, getMockRouteDashboard } from "./mock";
-import type { DashboardPayload, Market, PricePoint, RouteDashboardPayload, VegetableQuote } from "./types";
+import { getMockDashboard, getMockMarkets } from "./mock";
+import type { DashboardPayload, Market, PricePoint, VegetableQuote } from "./types";
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
 const allowMockFallback = import.meta.env.VITE_ENABLE_MOCK_FALLBACK !== "false";
@@ -31,18 +31,6 @@ export async function fetchDashboard(marketId: string, days: number): Promise<Da
   const fallback = getMockDashboard();
   try {
     return await requestJson<DashboardPayload>(`/api/dashboard?marketId=${encodeURIComponent(marketId)}&days=${days}`);
-  } catch (error) {
-    if (!allowMockFallback) throw error;
-    return fallback;
-  }
-}
-
-export async function fetchRouteDashboard(productionMarketId: string, days: number): Promise<RouteDashboardPayload> {
-  const fallback = getMockRouteDashboard();
-  try {
-    return await requestJson<RouteDashboardPayload>(
-      `/api/route-dashboard?productionMarketId=${encodeURIComponent(productionMarketId)}&days=${days}`
-    );
   } catch (error) {
     if (!allowMockFallback) throw error;
     return fallback;

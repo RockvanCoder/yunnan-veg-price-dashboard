@@ -19,34 +19,11 @@ export type HistoryBucket = {
   records: DailyHistoryRecord[];
 };
 
-export type SpreadHistoryRecord = {
-  date: string;
-  productionPrice: number;
-  destinationPrice: number;
-  spreadAmount: number;
-  spreadRate: number;
-  capturedAt: string;
-};
-
-export type SpreadHistoryBucket = {
-  productionMarketId: string;
-  productionMarketName: string;
-  destinationMarketId: string;
-  destinationMarketName: string;
-  varietyId: string;
-  varietyName: string;
-  records: SpreadHistoryRecord[];
-};
-
 const LOCAL_HISTORY_PATH = path.resolve(process.cwd(), ".netlify", "veg-price-history.json");
 const STORE_NAME = "yunnan-veg-price-history";
 
 function historyKey(marketId: string, varietyId: string) {
   return `${marketId}:${varietyId}`;
-}
-
-function spreadHistoryKey(productionMarketId: string, destinationMarketId: string, varietyId: string) {
-  return `spread:${productionMarketId}:${destinationMarketId}:${varietyId}`;
 }
 
 async function readLocalStore(): Promise<Record<string, HistoryBucket>> {
@@ -141,60 +118,4 @@ export function toDailyPoints(bucket: HistoryBucket, days: number) {
 
 export function getBucketKey(marketId: string, varietyId: string) {
   return historyKey(marketId, varietyId);
-}
-
-export async function loadSpreadHistoryBucket(
-  productionMarketId: string,
-  destinationMarketId: string,
-  varietyId: string
-): Promise<SpreadHistoryBucket | null> {
-  const key = spreadHistoryKey(productionMarketId, destinationMarketId, varietyId);
-  try {
-    const store = getStore(STORE_NAME);
-    const blobBucket = (await store.get(key, { type: "json" })) as SpreadHistoryBucket | null;
-    if (blobBucket) return blobBucket;
-  } catch {
-    // Local fallback below keeps development usable when blobs are unavailable.
-  }
-
-  const localStore = await readLocalStore();
-  return (localStore[key] as unknown as SpreadHistoryBucket | undefined) ?? null;
-}
-
-export async function saveSpreadHistoryBucket(bucket: SpreadHistoryBucket) {
-  const key = spreadHistoryKey(bucket.productionMarketId, bucket.destinationMarketId, bucket.varietyId);
-
-  try {
-    const store = getStore(STORE_NAME);
-    await store.setJSON(key, bucket);
-  } catch {
-    // Ignore blob failures so the API can still return live calculations.
-  }
-
-  try {
-    const localStore = await readLocalStore();
-    localStore[key] = bucket as unknown as HistoryBucket;
-    await writeLocalStore(localStore);
-  } catch {
-    // Ignore local mirror failures in serverless environments.
-  }
-}
-
-export function upsertSpreadHistoryRecord(bucket: SpreadHistoryBucket, record: SpreadHistoryRecord): SpreadHistoryBucket {
-  const records = [...bucket.records];
-  const index = records.findIndex((item) => item.date === record.date);
-
-  if (index >= 0) {
-    records[index] = record;
-  } else {
-    records.push(record);
-  }
-
-  records.sort((a, b) => a.date.localeCompare(b.date));
-
-  return { ...bucket, records };
-}
-
-export function createEmptySpreadBucket(input: Omit<SpreadHistoryBucket, "records">): SpreadHistoryBucket {
-  return { ...input, records: [] };
 }
