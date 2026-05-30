@@ -11,7 +11,10 @@
   functions = "netlify/functions"
 
 [functions."snapshot"]
-schedule = "@hourly"
+schedule = "*/15 6-10 * * *"
+
+[functions."snapshot-offpeak"]
+schedule = "30 * * * *"
 
 [[redirects]]
   from = "/api/*"

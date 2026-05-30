@@ -1,3 +1,4 @@
+import { withRetry } from "./retry";
 import { getMockDashboard, getMockMarkets } from "./mock";
 import type { DashboardPayload, Market, PricePoint, VegetableQuote } from "./types";
 
@@ -10,11 +11,13 @@ async function requestJson<T>(path: string): Promise<T> {
   }
 
   const url = baseUrl ? `${baseUrl}${path}` : path;
-  const response = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!response.ok) {
-    throw new Error(`请求失败: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
+  return withRetry(async () => {
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(`请求失败: ${response.status}`);
+    }
+    return response.json() as Promise<T>;
+  });
 }
 
 export async function fetchMarkets(): Promise<Market[]> {

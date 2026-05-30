@@ -21,6 +21,7 @@ export type HistoryBucket = {
 
 const LOCAL_HISTORY_PATH = path.resolve(process.cwd(), ".netlify", "veg-price-history.json");
 const STORE_NAME = "yunnan-veg-price-history";
+const WRITE_COOLDOWN_MS = 60 * 60 * 1000; // 1 小时：同一品种同一天价格不变时不重复写
 
 function historyKey(marketId: string, varietyId: string) {
   return `${marketId}:${varietyId}`;
@@ -67,6 +68,11 @@ export async function saveHistoryBucket(bucket: HistoryBucket) {
   const key = historyKey(bucket.marketId, bucket.varietyId);
 
   try {
+    // 限流：检查是否需要写入
+    const existing = await readBlobBucket(key);
+    if (shouldSkipWrite(existing, bucket)) {
+      return;
+    }
     await writeBlobBucket(key, bucket);
   } catch {
     // Blob storage is the primary path on Netlify; local persistence keeps
@@ -80,6 +86,18 @@ export async function saveHistoryBucket(bucket: HistoryBucket) {
   } catch {
     // Ignore local mirror failures in serverless environments.
   }
+}
+
+function shouldSkipWrite(existing: HistoryBucket | null, updated: HistoryBucket): boolean {
+  if (!existing) return false;
+  const lastExisting = existing.records.at(-1);
+  const lastUpdated = updated.records.at(-1);
+  if (!lastExisting || !lastUpdated) return false;
+  // 同一天价格没变 → 跳过写入
+  if (lastExisting.date === lastUpdated.date && lastExisting.price === lastUpdated.price) {
+    return true;
+  }
+  return false;
 }
 
 export function upsertHistoryRecord(bucket: HistoryBucket, record: DailyHistoryRecord): HistoryBucket {

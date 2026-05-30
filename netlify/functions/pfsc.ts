@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
 
 export const PFSC_BASE = "https://pfsc.agri.cn";
-export const PFSC_AES_KEY = Buffer.from("7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV", "utf8");
+export const PFSC_AES_KEY = Buffer.from(
+  process.env.PFSC_AES_KEY || "7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV",
+  "utf8",
+);
 export const YUNNAN_PROVINCE_CODE = "530000";
 
 const YUNNAN_MARKET_FALLBACK = {

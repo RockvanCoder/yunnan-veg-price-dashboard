@@ -9,6 +9,16 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // ECharts 独立分包，避免拖慢首屏
+          echarts: ["echarts"],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
