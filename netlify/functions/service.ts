@@ -358,14 +358,65 @@ export async function buildRouteDashboardPayload({
   destinationMarketId = DESTINATION_REFERENCE_MARKET.id,
   days = DEFAULT_RANGE_DAYS,
 }: RouteBuildInput = {}): Promise<RouteDashboardPayload> {
-  const dashboard = await buildDashboardPayload({ marketId: productionMarketId, days });
+  const markets = await fetchYunnanMarkets();
+  const activeMarket = markets.find((item) => item.id === productionMarketId) ?? markets[0] ?? {
+    id: getYunnanFallbackMarket().id,
+    name: getYunnanFallbackMarket().name,
+    code: "530100",
+    provinceCode: "530000",
+    provinceName: "云南省",
+  };
+  const catalog = await fetchVegetableCatalog();
   const growthRanking = await fetchGrowthRanking();
   const destinationLookup = buildPriceFallbackMap(growthRanking);
+  const growthLookup = buildQuoteOptions(growthRanking);
   const now = shanghaiNow();
   const today = shanghaiDateKey(now);
   const syncAt = shanghaiDateTime(now);
+  const historicalQuotes = await Promise.all(
+    catalog.map(async (item): Promise<VegetableQuote | null> => {
+      const bucket = await loadHistoryBucket(activeMarket.id, item.id);
+      if (!bucket) return null;
+      const currentRecord = bucket.records.at(-1);
+      if (!currentRecord) return null;
+
+      const previousRecord = findPreviousRecord(bucket.records, currentRecord.date);
+      const currentPrice = currentRecord.price;
+      const yesterdayPrice = previousRecord?.price ?? currentPrice;
+      const growthAmount = Number((currentPrice - yesterdayPrice).toFixed(2));
+      const growthRate = previousRecord
+        ? Number((((currentPrice - yesterdayPrice) / (yesterdayPrice || 1)) * 100).toFixed(2))
+        : growthLookup.get(item.name) ?? 0;
+      const history7d = bucket.records.slice(-7).map((entry) => entry.price);
+      const history30d = bucket.records.slice(-30).map((entry) => entry.price);
+
+      return {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        marketId: activeMarket.id,
+        currentPrice: Number(currentPrice.toFixed(2)),
+        yesterdayPrice: Number(yesterdayPrice.toFixed(2)),
+        growthAmount,
+        growthRate,
+        history7dAvg: avg(history7d),
+        history30dAvg: avg(history30d),
+        updatedAt: currentRecord.capturedAt,
+      };
+    })
+  );
+  const quotesFromHistory = historicalQuotes.filter((item): item is VegetableQuote => Boolean(item));
+  const dashboard = quotesFromHistory.length
+    ? null
+    : await buildDashboardPayload({ marketId: activeMarket.id, days });
+  const quotes = quotesFromHistory.length ? quotesFromHistory : dashboard?.quotes ?? [];
   const productionMarket = {
-    ...dashboard.summary.market,
+    id: activeMarket.id,
+    name: activeMarket.name,
+    region: activeMarket.provinceName ?? "云南",
+    note: "官方云南产区市场数据",
+    updatedAt: syncAt,
     kind: "production" as const,
     group: "云南产区",
   };
@@ -376,7 +427,7 @@ export async function buildRouteDashboardPayload({
   };
 
   const spreadResults = await Promise.all(
-    dashboard.quotes
+    quotes
       .filter((quote) => quote.currentPrice > 0)
       .map(async (quote) => {
         const destinationPrice = destinationLookup.get(quote.name) ?? quote.currentPrice;
@@ -442,8 +493,8 @@ export async function buildRouteDashboardPayload({
 
   return {
     summary: {
-      sourceName: dashboard.summary.sourceName,
-      sourceUrl: dashboard.summary.sourceUrl,
+      sourceName: "农业农村部全国农产品批发市场价格信息系统",
+      sourceUrl: "https://pfsc.agri.cn/priceMarket",
       productionMarket,
       destinationMarket,
       syncAt,
@@ -451,7 +502,7 @@ export async function buildRouteDashboardPayload({
       averageSpread,
       positiveSpreadCount,
       strongestVegetableName: strongest?.name ?? "--",
-      staleAtMinutes: dashboard.summary.staleAtMinutes,
+      staleAtMinutes: dashboard?.summary.staleAtMinutes ?? 5,
       note: "销区价当前使用官方全国平均批发价作为参考，后续可替换为北京、广州、上海等具体销区市场。",
     },
     spreads,
