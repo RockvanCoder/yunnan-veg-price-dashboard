@@ -4,6 +4,7 @@ import type { DashboardPayload, VegetableQuote } from "../lib/types";
 
 const props = defineProps<{
   dashboard: DashboardPayload | null;
+  farmGateRatio: number;
 }>();
 
 const emit = defineEmits<{
@@ -28,7 +29,8 @@ function todayMinus(days: number): string {
 }
 
 function quotesToCsv(quotes: VegetableQuote[], marketName: string, capturedAt: string): string {
-  const header = "日期,时间,市场,品种,品类,单位,当前价格(元),昨日价格(元),涨跌额(元),涨跌幅(%),7日均价(元),30日均价(元)";
+  const ratio = props.farmGateRatio;
+  const header = "日期,时间,市场,品种,品类,单位,批发价(元),昨日批发价(元),涨跌额(元),涨跌幅(%),估算产地价(元),7日均价(元),30日均价(元),产地价比例";
   const rows = [header];
   for (const q of quotes) {
     rows.push([
@@ -42,8 +44,10 @@ function quotesToCsv(quotes: VegetableQuote[], marketName: string, capturedAt: s
       q.yesterdayPrice.toFixed(2),
       q.growthAmount.toFixed(2),
       q.growthRate.toFixed(2),
+      (q.currentPrice * ratio).toFixed(2),
       q.history7dAvg.toFixed(2),
       q.history30dAvg.toFixed(2),
+      ratio.toFixed(2),
     ].join(","));
   }
   return rows.join("\n");
@@ -113,6 +117,7 @@ async function doExport() {
 
   source.value = "local";
   const dateLabel = now.slice(0, 10);
+  const r = props.farmGateRatio;
 
   if (format.value === "csv") {
     const csv = quotesToCsv(quotes, marketName, now);
@@ -121,9 +126,13 @@ async function doExport() {
     const json = JSON.stringify({
       exportedAt: now,
       source: "当前页面数据（API 不可用时回落）",
+      farmGateRatio: r,
       marketName,
       quoteCount: quotes.length,
-      quotes,
+      quotes: quotes.map((q) => ({
+        ...q,
+        estimatedFarmGatePrice: Number((q.currentPrice * r).toFixed(2)),
+      })),
     }, null, 2);
     downloadBlob(json, "application/json", `云南菜价_当前数据_${dateLabel}.json`);
   }

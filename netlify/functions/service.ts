@@ -232,6 +232,11 @@ export async function buildDashboardPayload({ marketId, days = DEFAULT_RANGE_DAY
 // 构建并持久化每日快照（供导出和历史查询）
 export async function captureDailySnapshot(marketId?: string) {
   const payload = await buildDashboardPayload({ marketId, days: 7 });
+  const ratio = 0.7; // 默认产地价比例
+  const farmGateAvg = Number((payload.summary.currentAvgPrice * ratio).toFixed(2));
+  const farmGateHigh = Number((payload.summary.highestPrice * ratio).toFixed(2));
+  const farmGateLow = Number((payload.summary.lowestPrice * ratio).toFixed(2));
+
   await saveDailySnapshot({
     date: payload.summary.syncAt.slice(0, 10),
     capturedAt: payload.summary.syncAt,
@@ -239,6 +244,7 @@ export async function captureDailySnapshot(marketId?: string) {
     marketName: payload.summary.market.name,
     sourceName: payload.summary.sourceName,
     sourceUrl: payload.summary.sourceUrl,
+    farmGateRatio: ratio,
     quotes: payload.quotes,
     summary: {
       avgPrice: payload.summary.currentAvgPrice,
@@ -246,6 +252,11 @@ export async function captureDailySnapshot(marketId?: string) {
       lowestPrice: payload.summary.lowestPrice,
       risingCount: payload.summary.risingCount,
       fallingCount: payload.summary.fallingCount,
+    },
+    farmGateSummary: {
+      avgPrice: farmGateAvg,
+      highestPrice: farmGateHigh,
+      lowestPrice: farmGateLow,
     },
   });
   return payload;

@@ -8,20 +8,33 @@ import { getChartTheme } from "../lib/chart-theme";
 const props = defineProps<{
   historyPoints: PricePoint[];
   loading: boolean;
+  farmGateRatio: number;
 }>();
 
 const option = computed<EChartsOption>(() => {
   const t = getChartTheme();
+  const ratio = props.farmGateRatio;
+
   return {
-    grid: { left: 40, right: 18, top: 26, bottom: 30 },
+    grid: { left: 48, right: 18, top: 26, bottom: 30 },
     tooltip: {
       trigger: "axis",
       formatter: (params: unknown) => {
-        const arr = (params as Array<{ axisValueLabel: string; value: number }>) ?? [];
+        const arr = params as Array<{ seriesName: string; axisValueLabel: string; value: number; color: string }>;
         if (!arr.length) return "";
-        const p = arr[0];
-        return `<strong>${p.axisValueLabel}</strong><br/>价格：¥${p.value.toFixed(2)}`;
+        const d = arr[0].axisValueLabel;
+        let html = `<strong>${d}</strong>`;
+        for (const s of arr) {
+          html += `<br/><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.color};margin-right:6px;"></span>${s.seriesName}：¥${s.value.toFixed(2)}`;
+        }
+        return html;
       },
+    },
+    legend: {
+      data: ["批发价", `产地价 (×${(ratio * 100).toFixed(0)}%)`],
+      textStyle: { color: t.mutedText, fontSize: 11 },
+      top: 0,
+      right: 0,
     },
     xAxis: {
       type: "category" as const,
@@ -37,41 +50,31 @@ const option = computed<EChartsOption>(() => {
     },
     series: [
       {
+        name: "批发价",
         data: props.historyPoints.map((p) => p.price),
         type: "line" as const,
         smooth: true,
-        symbolSize: 8,
-        lineStyle: { width: 4, color: "#f59e0b" },
+        symbolSize: 6,
+        lineStyle: { width: 3, color: "#f59e0b" },
         itemStyle: { color: "#f59e0b" },
-        areaStyle: { color: "rgba(245, 158, 11, 0.18)" },
-        markPoint: {
-          data: props.historyPoints.length
-            ? [
-                { type: "max" as const, name: "最高" },
-                { type: "min" as const, name: "最低" },
-              ]
-            : [],
-        },
-        markLine: props.historyPoints.length >= 3
-          ? {
-              silent: true,
-              data: [
-                {
-                  type: "average" as const,
-                  name: "均价",
-                  label: { formatter: "均价 {c}", color: t.mutedText },
-                  lineStyle: { color: t.splitLine, type: "dashed" as const },
-                },
-              ],
-            }
-          : undefined,
+        areaStyle: { color: "rgba(245, 158, 11, 0.12)" },
+      },
+      {
+        name: `产地价 (×${(ratio * 100).toFixed(0)}%)`,
+        data: props.historyPoints.map((p) => Number((p.price * ratio).toFixed(2))),
+        type: "line" as const,
+        smooth: true,
+        symbolSize: 4,
+        lineStyle: { width: 2, color: "#3b82f6", type: "dashed" as const },
+        itemStyle: { color: "#3b82f6" },
+        areaStyle: { color: "rgba(59, 130, 246, 0.08)" },
       },
     ],
-    color: ["#f59e0b"],
+    color: ["#f59e0b", "#3b82f6"],
   };
 });
 </script>
 
 <template>
-  <BaseChart :option="option" :loading="loading" height="340px" />
+  <BaseChart :option="option" :loading="loading" height="360px" />
 </template>

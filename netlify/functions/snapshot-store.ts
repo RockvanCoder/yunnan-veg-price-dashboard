@@ -5,19 +5,25 @@ import { getStore } from "@netlify/blobs";
 import type { VegetableQuote } from "../../src/lib/types";
 
 export type DailySnapshot = {
-  date: string;                    // "2026-05-29"
-  capturedAt: string;              // "2026-05-29 12:00:00"
+  date: string;
+  capturedAt: string;
   marketId: string;
   marketName: string;
   sourceName: string;
   sourceUrl: string;
-  quotes: VegetableQuote[];        // 当日全量报价
+  quotes: VegetableQuote[];
+  farmGateRatio: number;          // 产地价估算比例
   summary: {
     avgPrice: number;
     highestPrice: number;
     lowestPrice: number;
     risingCount: number;
     fallingCount: number;
+  };
+  farmGateSummary: {               // 产地价估算汇总
+    avgPrice: number;
+    highestPrice: number;
+    lowestPrice: number;
   };
 };
 
@@ -96,11 +102,13 @@ export async function loadSnapshotRange(
 
 // 转换为 CSV 字符串
 export function snapshotsToCSV(snapshots: DailySnapshot[]): string {
-  const header = "日期,时间,市场,品种,品类,单位,当前价格(元),昨日价格(元),涨跌额(元),涨跌幅(%),7日均价(元),30日均价(元)";
+  const header = "日期,时间,市场,品种,品类,单位,批发价(元),昨日批发价(元),涨跌额(元),涨跌幅(%),估算产地价(元),7日均价(元),30日均价(元),产地价估算比例";
   const rows: string[] = [header];
 
   for (const snap of snapshots) {
+    const ratio = snap.farmGateRatio ?? 0.7;
     for (const q of snap.quotes) {
+      const farmPrice = (q.currentPrice * ratio).toFixed(2);
       const row = [
         snap.date,
         snap.capturedAt,
@@ -112,8 +120,10 @@ export function snapshotsToCSV(snapshots: DailySnapshot[]): string {
         q.yesterdayPrice.toFixed(2),
         q.growthAmount.toFixed(2),
         q.growthRate.toFixed(2),
+        farmPrice,
         q.history7dAvg.toFixed(2),
         q.history30dAvg.toFixed(2),
+        ratio.toFixed(2),
       ].join(",");
       rows.push(row);
     }

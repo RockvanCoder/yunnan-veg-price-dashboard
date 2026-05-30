@@ -7,6 +7,7 @@ const STORAGE_KEY_VEGETABLE = "veg_vegetableId";
 const STORAGE_KEY_DAYS = "veg_rangeDays";
 const STORAGE_KEY_THEME = "veg_theme";
 const STORAGE_KEY_FONT = "veg_largeFont";
+const STORAGE_KEY_FARMGATE = "veg_farmGateRatio";
 
 function loadStorage<T>(key: string, fallback: T): T {
   try {
@@ -41,6 +42,7 @@ export function useDashboard() {
   const lastUpdated = ref("");
   const themeMode = ref<ThemeMode>(loadStorage(STORAGE_KEY_THEME, "system"));
   const largeFont = ref(loadStorage(STORAGE_KEY_FONT, false));
+  const farmGateRatio = ref(loadStorage(STORAGE_KEY_FARMGATE, 0.7));
   const staleMinutes = ref(0);
   let refreshTimer: number | undefined;
   let staleTimer: number | undefined;
@@ -117,6 +119,32 @@ export function useDashboard() {
     if (value < 0) return "var(--green)";
     return "var(--muted)";
   }
+
+  // ── 田头价估算 ──
+
+  function farmGatePrice(wholesalePrice: number): number {
+    return Number((wholesalePrice * farmGateRatio.value).toFixed(2));
+  }
+
+  function setFarmGateRatio(ratio: number) {
+    farmGateRatio.value = ratio;
+    saveStorage(STORAGE_KEY_FARMGATE, ratio);
+  }
+
+  const farmGateAvg = computed(() => {
+    if (!quotes.value.length) return 0;
+    return farmGatePrice(quotes.value.reduce((s, q) => s + q.currentPrice, 0) / quotes.value.length);
+  });
+
+  const farmGateHigh = computed(() => {
+    if (!quotes.value.length) return 0;
+    return farmGatePrice(Math.max(...quotes.value.map((q) => q.currentPrice)));
+  });
+
+  const farmGateLow = computed(() => {
+    if (!quotes.value.length) return 0;
+    return farmGatePrice(Math.min(...quotes.value.map((q) => q.currentPrice)));
+  });
 
   // ── data loading ──
 
@@ -264,6 +292,7 @@ export function useDashboard() {
     lastUpdated,
     themeMode,
     largeFont,
+    farmGateRatio,
     staleMinutes,
     vegetableSearch,
     selectedCategory,
@@ -276,10 +305,14 @@ export function useDashboard() {
     topGainers,
     topLosers,
     alerts,
+    farmGateAvg,
+    farmGateHigh,
+    farmGateLow,
     // helpers
     money,
     signedRate,
     colorForRate,
+    farmGatePrice,
     // actions
     loadDashboard,
     refreshNow,
@@ -287,5 +320,6 @@ export function useDashboard() {
     speakQuote,
     applyTheme,
     applyFont,
+    setFarmGateRatio,
   };
 }

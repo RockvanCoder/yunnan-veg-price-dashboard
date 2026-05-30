@@ -15,11 +15,11 @@ import NetworkStatus from "./components/NetworkStatus.vue";
 const {
   markets, activeMarketId, rangeDays, loading, refreshing, useMockNotice,
   dashboard, selectedVegetableId, historyPoints, sourceError, lastUpdated,
-  themeMode, largeFont, staleMinutes, vegetableSearch, selectedCategory,
+  themeMode, largeFont, farmGateRatio, staleMinutes, vegetableSearch, selectedCategory,
   activeMarket, quotes, selectedQuote, filteredQuotes, categories,
-  topGainers, topLosers, alerts,
-  money, signedRate, colorForRate,
-  loadDashboard, refreshNow, selectVegetable, speakQuote, applyTheme, applyFont,
+  topGainers, topLosers, alerts, farmGateAvg, farmGateHigh, farmGateLow,
+  money, signedRate, colorForRate, farmGatePrice,
+  loadDashboard, refreshNow, selectVegetable, speakQuote, applyTheme, applyFont, setFarmGateRatio,
 } = useDashboard();
 
 // ── ranking collapse ──
@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
         <div class="eyebrow">云南菜价通</div>
         <h1>菜农身边的行情助手</h1>
         <p>
-          专注云南市场的蔬菜价格看板，实时刷新、涨幅红标、历史回看、语音播报，让种菜的看得懂行情。
+          专注云南批发市场行情，红色涨幅高亮、蓝色估算产地价、一键语音播报，让种菜的看得懂价格、算得清账。
         </p>
         <div class="hero-meta">
           <span>📡 {{ dashboard?.summary.sourceName ?? "等待加载" }}</span>
@@ -148,23 +148,28 @@ onBeforeUnmount(() => {
     <!-- Stats Cards -->
     <section class="stats-grid">
       <template v-if="loading">
-        <SkeletonLoader type="stat" v-for="i in 4" :key="i" />
+        <SkeletonLoader type="stat" v-for="i in 5" :key="i" />
       </template>
       <template v-else>
         <article class="stat-card" role="status">
-          <span>📊 最新均价</span>
-          <strong :aria-label="`最新均价 ${dashboard ? dashboard.summary.currentAvgPrice.toFixed(2) : '未加载'}元`">{{ dashboard ? money(dashboard.summary.currentAvgPrice) : "--" }}</strong>
-          <small>云南市场综合均值</small>
+          <span>📦 批发均价</span>
+          <strong :aria-label="`批发均价 ${dashboard ? dashboard.summary.currentAvgPrice.toFixed(2) : '未加载'}元`">{{ dashboard ? money(dashboard.summary.currentAvgPrice) : "--" }}</strong>
+          <small>批发市场综合均值 · 昆明呈贡/王旗营</small>
+        </article>
+        <article class="stat-card farm-gate-card" role="status">
+          <span>🌾 估算产地价</span>
+          <strong :aria-label="`估算产地均价 ${farmGateAvg.toFixed(2)}元`">{{ money(farmGateAvg) }}</strong>
+          <small>批发价 × {{ (farmGateRatio * 100).toFixed(0) }}% · 扣除运费代办费</small>
         </article>
         <article class="stat-card" role="status">
           <span>📈 最高价</span>
           <strong :aria-label="`最高价 ${dashboard ? dashboard.summary.highestPrice.toFixed(2) : '未加载'}元`">{{ dashboard ? money(dashboard.summary.highestPrice) : "--" }}</strong>
-          <small>当前样本中最高单品</small>
+          <small>当前样本中最高单品（批发价）</small>
         </article>
         <article class="stat-card" role="status">
           <span>📉 最低价</span>
           <strong :aria-label="`最低价 ${dashboard ? dashboard.summary.lowestPrice.toFixed(2) : '未加载'}元`">{{ dashboard ? money(dashboard.summary.lowestPrice) : "--" }}</strong>
-          <small>当前样本中最低单品</small>
+          <small>当前样本中最低单品（批发价）</small>
         </article>
         <article class="stat-card">
           <span>📊 上涨 / 下跌</span>
@@ -197,7 +202,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-else class="panel-chip">未选择</div>
           </div>
-          <PriceTrendChart :history-points="historyPoints" :loading="loading" />
+          <PriceTrendChart :history-points="historyPoints" :farm-gate-ratio="farmGateRatio" :loading="loading" />
         </section>
 
         <!-- Daily Growth -->
@@ -288,6 +293,7 @@ onBeforeUnmount(() => {
                       title="播报价格"
                     >🔊</button>
                   </div>
+                  <small class="farm-gate-hint">产地 ≈ {{ money(farmGatePrice(item.currentPrice)) }}</small>
                   <small :style="{ color: colorForRate(item.growthRate) }">{{ signedRate(item.growthRate) }}</small>
                 </div>
               </button>
@@ -309,8 +315,8 @@ onBeforeUnmount(() => {
         <section class="panel">
           <div class="panel-header">
             <div>
-              <h2>ℹ️ 来源说明</h2>
-              <p>真实上线后会显示你配置的官方行情源和同步时间。</p>
+              <h2>ℹ️ 数据说明</h2>
+              <p>价格来源与估算方法说明。</p>
             </div>
           </div>
           <div class="info-list">
@@ -321,6 +327,34 @@ onBeforeUnmount(() => {
             <div>
               <span>数据源地址</span>
               <strong>{{ dashboard?.summary.sourceUrl ?? "--" }}</strong>
+            </div>
+            <div>
+              <span>价格类型</span>
+              <strong>📦 批发市场交易价（非产地出货价）</strong>
+            </div>
+            <div>
+              <span>产地价估算</span>
+              <strong>🌾 批发价 × {{ (farmGateRatio * 100).toFixed(0) }}% · 扣除运费代办费</strong>
+            </div>
+            <div>
+              <span>估算比例</span>
+              <div style="margin-top:8px;">
+                <input
+                  type="range"
+                  :value="farmGateRatio"
+                  :min="0.5"
+                  :max="0.9"
+                  :step="0.05"
+                  class="ratio-slider"
+                  aria-label="调整产地价估算比例"
+                  @input="setFarmGateRatio(parseFloat(($event.target as HTMLInputElement).value))"
+                />
+                <div class="ratio-labels">
+                  <span>50% (偏远)</span>
+                  <span>{{ (farmGateRatio * 100).toFixed(0) }}%</span>
+                  <span>90% (近郊)</span>
+                </div>
+              </div>
             </div>
             <div>
               <span>最后同步</span>
@@ -344,7 +378,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Export Dialog -->
-    <ExportDialog v-if="showExport" :dashboard="dashboard" @close="showExport = false" />
+    <ExportDialog v-if="showExport" :dashboard="dashboard" :farm-gate-ratio="farmGateRatio" @close="showExport = false" />
   </div>
 </template>
 
@@ -380,6 +414,51 @@ onBeforeUnmount(() => {
   background: rgba(245, 158, 11, 0.2);
   color: var(--text);
   border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* ── Farm-gate ── */
+.farm-gate-card {
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  background: linear-gradient(135deg, rgba(59,130,246,0.06), rgba(59,130,246,0.02)) !important;
+}
+
+.farm-gate-card strong {
+  color: #3b82f6;
+}
+
+.farm-gate-hint {
+  color: #3b82f6;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+.ratio-slider {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--panel-border);
+  border-radius: 3px;
+  outline: none;
+}
+
+.ratio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 2px solid white;
+  cursor: pointer;
+}
+
+.ratio-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 4px;
 }
 
 /* ── Export toggle ── */
