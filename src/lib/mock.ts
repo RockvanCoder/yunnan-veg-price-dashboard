@@ -1,4 +1,4 @@
-import type { DashboardPayload, Market, PricePoint, VegetableQuote } from "./types";
+import type { DashboardPayload, Market, PricePoint, RouteDashboardPayload, VegetableQuote } from "./types";
 
 const markets: Market[] = [
   { id: "76E4F160C162936CE040A8C020017257", name: "云南昆明呈贡龙城农产品经营股份有限公司", region: "云南省", note: "主产区批发参考", updatedAt: "2026-05-29 12:00" },
@@ -103,4 +103,80 @@ export function getMockDashboard(): DashboardPayload {
 
 export function getMockMarkets() {
   return markets;
+}
+
+export function getMockRouteDashboard(): RouteDashboardPayload {
+  const dashboard = getMockDashboard();
+  const productionMarket = {
+    ...markets[0],
+    kind: "production" as const,
+    group: "云南产区",
+  };
+  const destinationMarket = {
+    id: "national-wholesale-average",
+    name: "全国销区批发参考均价",
+    region: "全国重点批发市场",
+    note: "示例销区参考",
+    updatedAt: dashboard.summary.syncAt,
+    kind: "benchmark" as const,
+    group: "销区参考",
+  };
+  const spreads = quotes.map((quote, index) => {
+    const destinationPrice = Number((quote.currentPrice * (1.08 + index * 0.025)).toFixed(2));
+    const spreadAmount = Number((destinationPrice - quote.currentPrice).toFixed(2));
+    const spreadRate = Number(((spreadAmount / quote.currentPrice) * 100).toFixed(2));
+
+    return {
+      id: quote.id,
+      name: quote.name,
+      category: quote.category,
+      unit: quote.unit,
+      productionMarketId: productionMarket.id,
+      productionMarketName: productionMarket.name,
+      destinationMarketId: destinationMarket.id,
+      destinationMarketName: destinationMarket.name,
+      productionPrice: quote.currentPrice,
+      destinationPrice,
+      spreadAmount,
+      spreadRate,
+      productionGrowthRate: quote.growthRate,
+      signal: spreadRate >= 20 ? "strong" as const : spreadRate >= 8 ? "watch" as const : "weak" as const,
+      updatedAt: dashboard.summary.syncAt,
+    };
+  });
+
+  return {
+    summary: {
+      sourceName: "示例数据源",
+      sourceUrl: "待接入官方行情接口",
+      productionMarket,
+      destinationMarket,
+      syncAt: dashboard.summary.syncAt,
+      quoteCount: spreads.length,
+      averageSpread: Number((spreads.reduce((sum, item) => sum + item.spreadAmount, 0) / spreads.length).toFixed(2)),
+      positiveSpreadCount: spreads.filter((item) => item.spreadAmount > 0).length,
+      strongestVegetableName: spreads[0]?.name ?? "--",
+      staleAtMinutes: 5,
+      note: "示例产销价差，用于本地界面调试。",
+    },
+    spreads,
+    featuredSpreadHistory: dashboard.featuredHistory.slice(0, 4).map((item, index) => ({
+      vegetableId: item.vegetableId,
+      name: item.name,
+      points: item.points.map((point) => {
+        const productionPrice = point.price;
+        const destinationPrice = Number((productionPrice * (1.08 + index * 0.03)).toFixed(2));
+        const spreadAmount = Number((destinationPrice - productionPrice).toFixed(2));
+        const spreadRate = Number(((spreadAmount / productionPrice) * 100).toFixed(2));
+
+        return {
+          date: point.date,
+          productionPrice,
+          destinationPrice,
+          spreadAmount,
+          spreadRate,
+        };
+      }),
+    })),
+  };
 }

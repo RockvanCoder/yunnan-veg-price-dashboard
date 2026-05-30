@@ -1,18 +1,32 @@
-import type { DashboardPayload, PricePoint, VegetableQuote } from "../../src/lib/types";
+import type { DashboardPayload, Market, PricePoint, RouteDashboardPayload, SpreadSignal, VegetableQuote } from "../../src/lib/types";
 import { fallbackPayload } from "./_shared";
 import {
   DEFAULT_VEGETABLE_CATALOG,
-  DEFAULT_VEGETABLE_NAMES,
   fetchCurrentPriceQuote,
   fetchGrowthRanking,
   fetchVegetableCatalog,
   fetchYunnanMarkets,
   getYunnanFallbackMarket,
 } from "./pfsc";
-import { createEmptyBucket, loadHistoryBucket, saveHistoryBucket, upsertHistoryRecord } from "./history-store";
+import {
+  createEmptyBucket,
+  createEmptySpreadBucket,
+  loadHistoryBucket,
+  loadSpreadHistoryBucket,
+  saveHistoryBucket,
+  saveSpreadHistoryBucket,
+  upsertHistoryRecord,
+  upsertSpreadHistoryRecord,
+} from "./history-store";
 
 type DashboardBuildInput = {
   marketId?: string;
+  days?: number;
+};
+
+type RouteBuildInput = {
+  productionMarketId?: string;
+  destinationMarketId?: string;
   days?: number;
 };
 
@@ -30,6 +44,15 @@ type QuoteBuildResult = VegetableQuote & {
 };
 
 const DEFAULT_RANGE_DAYS = 7;
+const DESTINATION_REFERENCE_MARKET: Market = {
+  id: "national-wholesale-average",
+  name: "全国销区批发参考均价",
+  region: "全国重点批发市场",
+  note: "来自官方涨幅排行中的全国平均批发价，用作销区参考价",
+  updatedAt: "",
+  kind: "benchmark",
+  group: "销区参考",
+};
 
 function shanghaiNow() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
@@ -95,6 +118,24 @@ function buildDailySeries(records: Array<{ date: string; price: number }>): Pric
       growthRate,
     };
   });
+}
+
+function buildSpreadSeries(
+  records: Array<{ date: string; productionPrice: number; destinationPrice: number; spreadAmount: number; spreadRate: number }>
+) {
+  return records.map((item) => ({
+    date: item.date.slice(5),
+    productionPrice: Number(item.productionPrice.toFixed(2)),
+    destinationPrice: Number(item.destinationPrice.toFixed(2)),
+    spreadAmount: Number(item.spreadAmount.toFixed(2)),
+    spreadRate: Number(item.spreadRate.toFixed(2)),
+  }));
+}
+
+function spreadSignal(spreadRate: number, productionGrowthRate: number): SpreadSignal {
+  if (spreadRate >= 20 && productionGrowthRate >= 0) return "strong";
+  if (spreadRate >= 8) return "watch";
+  return "weak";
 }
 
 function resolveCatalogItem(vegetableId: string, catalog: Awaited<ReturnType<typeof fetchVegetableCatalog>>) {
@@ -305,8 +346,116 @@ export async function buildMarketsPayload() {
       region: market.provinceName ?? "云南",
       note: "农业农村部官方云南市场",
       updatedAt: now,
+      kind: "production" as const,
+      group: "云南产区",
     })),
     source: "official",
+  };
+}
+
+export async function buildRouteDashboardPayload({
+  productionMarketId,
+  destinationMarketId = DESTINATION_REFERENCE_MARKET.id,
+  days = DEFAULT_RANGE_DAYS,
+}: RouteBuildInput = {}): Promise<RouteDashboardPayload> {
+  const dashboard = await buildDashboardPayload({ marketId: productionMarketId, days });
+  const growthRanking = await fetchGrowthRanking();
+  const destinationLookup = buildPriceFallbackMap(growthRanking);
+  const now = shanghaiNow();
+  const today = shanghaiDateKey(now);
+  const syncAt = shanghaiDateTime(now);
+  const productionMarket = {
+    ...dashboard.summary.market,
+    kind: "production" as const,
+    group: "云南产区",
+  };
+  const destinationMarket = {
+    ...DESTINATION_REFERENCE_MARKET,
+    id: destinationMarketId,
+    updatedAt: syncAt,
+  };
+
+  const spreadResults = await Promise.all(
+    dashboard.quotes
+      .filter((quote) => quote.currentPrice > 0)
+      .map(async (quote) => {
+        const destinationPrice = destinationLookup.get(quote.name) ?? quote.currentPrice;
+        const spreadAmount = Number((destinationPrice - quote.currentPrice).toFixed(2));
+        const spreadRate = quote.currentPrice > 0 ? Number(((spreadAmount / quote.currentPrice) * 100).toFixed(2)) : 0;
+
+        const existingBucket = await loadSpreadHistoryBucket(productionMarket.id, destinationMarket.id, quote.id);
+        const bucket = upsertSpreadHistoryRecord(
+          existingBucket ??
+            createEmptySpreadBucket({
+              productionMarketId: productionMarket.id,
+              productionMarketName: productionMarket.name,
+              destinationMarketId: destinationMarket.id,
+              destinationMarketName: destinationMarket.name,
+              varietyId: quote.id,
+              varietyName: quote.name,
+            }),
+          {
+            date: today,
+            productionPrice: quote.currentPrice,
+            destinationPrice,
+            spreadAmount,
+            spreadRate,
+            capturedAt: syncAt,
+          }
+        );
+
+        await saveSpreadHistoryBucket(bucket);
+
+        return {
+          spread: {
+            id: quote.id,
+            name: quote.name,
+            category: quote.category,
+            unit: quote.unit,
+            productionMarketId: productionMarket.id,
+            productionMarketName: productionMarket.name,
+            destinationMarketId: destinationMarket.id,
+            destinationMarketName: destinationMarket.name,
+            productionPrice: quote.currentPrice,
+            destinationPrice: Number(destinationPrice.toFixed(2)),
+            spreadAmount,
+            spreadRate,
+            productionGrowthRate: quote.growthRate,
+            signal: spreadSignal(spreadRate, quote.growthRate),
+            updatedAt: syncAt,
+          },
+          history: {
+            vegetableId: quote.id,
+            name: quote.name,
+            points: buildSpreadSeries(bucket.records).slice(-Math.max(1, days)),
+          },
+        };
+      })
+  );
+
+  const spreads = spreadResults
+    .map((item) => item.spread)
+    .sort((a, b) => b.spreadAmount - a.spreadAmount || b.spreadRate - a.spreadRate);
+  const strongest = spreads[0];
+  const averageSpread = avg(spreads.map((item) => item.spreadAmount));
+  const positiveSpreadCount = spreads.filter((item) => item.spreadAmount > 0).length;
+
+  return {
+    summary: {
+      sourceName: dashboard.summary.sourceName,
+      sourceUrl: dashboard.summary.sourceUrl,
+      productionMarket,
+      destinationMarket,
+      syncAt,
+      quoteCount: spreads.length,
+      averageSpread,
+      positiveSpreadCount,
+      strongestVegetableName: strongest?.name ?? "--",
+      staleAtMinutes: dashboard.summary.staleAtMinutes,
+      note: "销区价当前使用官方全国平均批发价作为参考，后续可替换为北京、广州、上海等具体销区市场。",
+    },
+    spreads,
+    featuredSpreadHistory: spreadResults.slice(0, 4).map((item) => item.history),
   };
 }
 
