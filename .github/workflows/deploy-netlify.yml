@@ -1,0 +1,22 @@
+name: Deploy to Netlify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Netlify deploy hook
+        env:
+          HOOK_URL: ${{ secrets.NETLIFY_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then
+            echo "❌ NETLIFY_DEPLOY_HOOK_URL secret not set"
+            echo "👉 Run the following and add it as a GitHub secret:"
+            echo '   https://api.netlify.com/build_hooks/6a1f114ae6bd452ee677a0b3'
+            exit 1
+          fi
+          curl -X POST "$HOOK_URL"
